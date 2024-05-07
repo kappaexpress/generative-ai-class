@@ -9,3 +9,6 @@ cursor.execute("SELECT seasonings, name FROM recipes ORDER BY seasonings DESC")
 results = cursor.fetchall()
 for row in results:
     print(row)
+
+# データベースのクローズ
+conn.close()

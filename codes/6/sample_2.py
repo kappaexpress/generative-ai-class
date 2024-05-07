@@ -9,3 +9,6 @@ cursor.execute("SELECT name, food_category_1, ingredients FROM recipes WHERE foo
 results = cursor.fetchall()
 for row in results:
     print(row)
+
+# データベースのクローズ
+conn.close()

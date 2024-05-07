@@ -9,3 +9,6 @@ cursor.execute("SELECT name, main_ingredients, primary_cooking_methods FROM reci
 results = cursor.fetchall()
 for row in results:
     print(row)
+
+# データベースのクローズ
+conn.close()
