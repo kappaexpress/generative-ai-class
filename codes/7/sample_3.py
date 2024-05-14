@@ -1,13 +1,27 @@
+import sqlite_vss
 from openai import OpenAI
 import streamlit as st
 import sqlite3
-import json
+import numpy as np
+from typing import List
+
+# OpenAIクライアントを初期化する
+client = OpenAI()
+
+
+# 埋め込みベクトルをシリアライズする関数
+def serialize(vector: List[float]) -> bytes:
+    return np.asarray(vector).astype(np.float32).tobytes()
+
+
+# テキストから埋め込みベクトルを生成する関数
+def generate_embedding(text: str) -> List[float]:
+    response = client.embeddings.create(model="text-embedding-3-large", input=[text])
+    return response.data[0].embedding
 
 # Streamlitアプリのタイトルを設定する
 st.title("江戸時代の卵料理がわかる君")
 
-# OpenAIクライアントを初期化する
-client = OpenAI()
 
 # セッション状態にモデルが設定されていない場合に初期化する
 if "openai_model" not in st.session_state:
@@ -30,44 +44,28 @@ if prompt := st.chat_input("質問やメッセージを入力してください"
     with st.chat_message("user"):
         st.markdown(prompt)
     
-    # データベースに接続
-    conn = sqlite3.connect("example.db")
-    cursor = conn.cursor()
+    query_embedding = generate_embedding(prompt)
+    serialized_embedding = serialize(query_embedding)
 
-    # 仮想テーブルにデータを挿入
-    conn.execute(
-        "INSERT INTO recipes_fts (name, abstract, ingredients, steps) SELECT name, abstract, ingredients, steps FROM recipes;"
-    )
+    con = sqlite3.connect("example_vec.db")
+    con.enable_load_extension(True)
+    sqlite_vss.load(conn=con)
 
-    response_for_query = client.chat.completions.create(
-        model="gpt-4o",
-        response_format={"type": "json_object"},
-        messages=[
-            {
-                "role": "system",
-                "content": "You are a helpful assistant designed to output JSON.",
-            },
-            {
-                "role": "user",
-                "content": f"# 質問\n {prompt} \nこの質問でレシピを検索するときに最も重要な単語を教えてください。キーはansを使ってください。",
-            },
-        ],
-    )
-
-    print(response_for_query.choices[0].message.content)
-
-    # response_for_query.choices[0].message.contentはJSON形式の文字列で、キーがansの値を取得する
-    query = json.loads(response_for_query.choices[0].message.content)["ans"]
-
-    # 仮想テーブルのデータを全文検索
-    cursor.execute(f"SELECT * FROM recipes_fts WHERE steps MATCH '{query}';")
-
-    results = cursor.fetchall()
+    query = """
+    SELECT recipes.*, recipes_vec.distance
+    FROM recipes_vec
+    JOIN recipes ON recipes_vec.rowid = recipes.rowid
+    WHERE vss_search(recipes_vec.steps_vec, vss_search_params(?, 10))
+    ORDER BY recipes_vec.distance
+    LIMIT ?;
+    """
+    results = con.execute(query, (serialized_embedding, 3)).fetchall()
+    con.close()
 
     print(results)
 
     # データベースのクローズ
-    conn.close()
+    con.close()
 
     # チャットメッセージをOpenAI APIに送信するために整形する
     message = [
